@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+    <title>Obsidian 리더</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        /* ER brand dark-theme surface (#232323) + Neutral-200 text (#E5E5E5). */
+        background: #232323;
+        color: #E5E5E5;
+        font: 14px/1.4 -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+        /* Kill WebView zoom + iOS auto-sizing + rubber-band scroll. */
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        overscroll-behavior: none;
+      }
+      #app { display: flex; min-height: 100%; }
+      .wrap { margin: 0 auto; padding: 20px 16px; width: 100%; max-width: 680px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; }
+      .top { display: flex; justify-content: space-between; align-items: center; }
+      h1 { font-size: 18px; font-weight: 600; margin: 0; }
+      .btn { background: #3A3A3A; color: #E5E5E5; border: 1px solid #4A4A4A; border-radius: 10px; padding: 10px 16px; font: inherit; cursor: pointer; user-select: none; }
+      .btn:active { background: #4A4A4A; }
+      .btn.primary { background: #E5E5E5; color: #232323; border-color: #E5E5E5; font-weight: 600; }
+      .meta { display: flex; flex-direction: column; gap: 6px; }
+      .name { font-size: 15px; font-weight: 600; word-break: break-all; }
+      .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      select { background: #2E2E2E; color: #E5E5E5; border: 1px solid #3E3E3E; border-radius: 8px; padding: 6px 8px; font: inherit; }
+      .muted { font-size: 12px; color: #919191; }
+      .status { font-size: 12px; color: #C8B464; min-height: 1em; }
+      .mirror { background: #2E2E2E; border: 1px solid #3E3E3E; border-radius: 12px; padding: 18px; font: 15px/1.6 inherit; font-family: inherit; white-space: pre-wrap; word-break: break-word; color: #E5E5E5; margin: 0; min-height: 200px; }
+      .nav { display: flex; justify-content: space-between; align-items: center; }
+      .count { font-variant-numeric: tabular-nums; color: #B5B5B5; }
+      input[type=range] { width: 100%; accent-color: #E5E5E5; }
+      footer { text-align: center; }
+      .card { background: #2A2A2A; border: 1px solid #3A3A3A; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .btn.small { padding: 6px 10px; font-size: 13px; }
+      input[type=search], .form input { width: 100%; box-sizing: border-box; background: #1F1F1F; color: #E5E5E5; border: 1px solid #444; border-radius: 8px; padding: 10px; font: inherit; }
+      .form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+      .form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #B5B5B5; }
+      summary { cursor: pointer; font-weight: 600; }
+      .results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+      .result { width: 100%; text-align: left; background: #333; color: #E5E5E5; border: 0; border-radius: 8px; padding: 8px 10px; font: inherit; display: flex; flex-direction: column; cursor: pointer; }
+      .result:active { background: #444; }
+      .rname { font-weight: 600; word-break: break-all; }
+      .rpath { font-size: 12px; color: #919191; word-break: break-all; }
+      .mirror { min-height: 120px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

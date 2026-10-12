@@ -1,0 +1,17 @@
+{
+  "package_id": "com.portalmaker88.obsidianreader",
+  "edition": "202601",
+  "name": "Obsidian Reader",
+  "version": "0.1.0",
+  "min_app_version": "2.2.5",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "GitHub 저장소에 동기화된 Obsidian 노트 목록과 내용을 읽어 옵니다.",
+      "whitelist": ["https://api.github.com"]
+    }
+  ],
+  "supported_languages": ["ko", "en"]
+}

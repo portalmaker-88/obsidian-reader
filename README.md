@@ -31,8 +31,8 @@ G2 앱 (GitHub Pages: obsidian-reader)
 | `src/github.ts` | GitHub API: 노트 목록(git tree), 노트 내용(raw) |
 | `src/markdown.ts` | Obsidian 마크다운 → 안경용 텍스트 (frontmatter·주석 제거, [[링크]]·콜아웃·체크박스·표 변환) |
 | `src/vault.ts` | 폴더 목록, 검색 |
-| `src/paginate.ts` | pretext로 G2 글자 폭을 재서 페이지 분할 |
-| `src/glasses.ts` | 안경 레이아웃(목록 / 본문+상태줄) |
+| `src/layout.ts` | pretext로 G2 글자 폭을 재서 한 줄씩 미리 나누고 6줄씩 페이지로 묶음 |
+| `src/glasses.ts` | 안경 레이아웃(목록 / 줄마다 컨테이너 하나, 40px 간격 = 1.5배 줄 간격). 첫 화면은 임시 화면 후 rebuild로 그림(재실행 시 빈 화면 방지) |
 | `src/storage.ts` | 설정, 노트 목록, 최근 노트 10개, 읽은 위치 저장 (Even 앱 저장소) |
 | `src/bridge.ts` | 모든 블루투스 호출을 한 줄로 직렬화 |
 

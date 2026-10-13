@@ -11,7 +11,7 @@ const CHUNK = 50_000
 const MAX_CACHED_NOTES = 10
 const MAX_NOTE_CHARS = 300_000
 
-const get = (key: string) => serial(() => bridge.getLocalStorage(PREFIX + key))
+const get = (key: string) => serial(() => bridge.getLocalStorage(PREFIX + key), 5_000)
 const set = (key: string, value: string) => serial(() => bridge.setLocalStorage(PREFIX + key, value))
 
 async function getJson<T>(key: string, fallback: T): Promise<T> {
@@ -86,10 +86,11 @@ export async function cacheNote(sha: string, text: string) {
 export interface ReadingState {
   dir: string
   lastNote: string | null
+  open: string | null // note on screen when last closed, reopened on launch
   pages: Record<string, number> // note path -> page index
 }
 
-export const loadReading = () => getJson<ReadingState>('reading', { dir: '', lastNote: null, pages: {} })
+export const loadReading = () => getJson<ReadingState>('reading', { dir: '', lastNote: null, open: null, pages: {} })
 
 export function saveReading(state: ReadingState) {
   const entries = Object.entries(state.pages).slice(-200)

@@ -2,12 +2,15 @@ import { OsEventTypeList } from '@evenrealities/even_hub_sdk'
 import { bridge } from './bridge'
 import { fetchNote, fetchNoteList, GitHubError, type NoteEntry, type RepoConfig } from './github'
 import { mdToGlasses } from './markdown'
-import { paginate } from './paginate'
+import { paginateRows, wrapText } from './layout'
 import { listDir, noteName, parentDir, searchNotes } from './vault'
-import { BODY_H, BODY_PAD, BODY_W, exitApp, showList, showReader } from './glasses'
+import { boot, exitApp, LINE_W, LINES_PER_PAGE, redraw, showList, showReader, startupResult } from './glasses'
 import * as store from './storage'
 
-const INNER = { width: BODY_W - 2 * BODY_PAD, height: BODY_H - 2 * BODY_PAD }
+// Draw something on the glasses before anything else (storage reads included),
+// so a slow start never leaves the display empty.
+await boot('Obsidian 리더\n\n불러오는 중...')
+
 const LIST_PAGE = 18 // items per list page when a folder has more than 20 entries
 
 const SETUP_TEXT = [
@@ -32,14 +35,14 @@ type Mode = 'message' | 'list' | 'reader'
 
 let cfg: RepoConfig | null = null
 let notes: NoteEntry[] = []
-let reading: store.ReadingState = { dir: '', lastNote: null, pages: {} }
+let reading: store.ReadingState = { dir: '', lastNote: null, open: null, pages: {} }
 let mode: Mode = 'message'
 
 let listPage = 0
 let actions: Action[] = []
 
 let notePath: string | null = null
-let pages: string[] = []
+let pages: string[][] = []
 let current = 0
 let openToken = 0
 
@@ -119,13 +122,15 @@ function readerStatus() {
 
 function renderReader() {
   mode = 'reader'
-  showReader(pages[current] ?? '', readerStatus()).catch(log)
+  showReader(pages[current] ?? [], readerStatus()).catch(log)
   renderPhone()
 }
 
+const messageRows = (text: string) => wrapText(text, LINE_W).slice(0, LINES_PER_PAGE)
+
 function showMessage(text: string) {
   mode = 'message'
-  showReader(text, ' ').catch(log)
+  showReader(messageRows(text), ' ').catch(log)
 }
 
 async function openNote(path: string) {
@@ -133,7 +138,7 @@ async function openNote(path: string) {
   const token = ++openToken
   const name = noteName(path)
   notePath = path
-  pages = [`■ ${name}\n\n불러오는 중...`]
+  pages = [messageRows(`■ ${name}\n\n불러오는 중...`)]
   current = 0
   renderReader()
 
@@ -144,16 +149,17 @@ async function openNote(path: string) {
       md = await fetchNote(cfg, path)
       if (entry) store.cacheNote(entry.sha, md).catch(log)
     }
-    const result = await paginate(mdToGlasses(md, name), INNER)
+    const result = await paginateRows(mdToGlasses(md, name), LINE_W, LINES_PER_PAGE)
     if (token !== openToken) return
     pages = result
     current = Math.min(reading.pages[path] ?? 0, pages.length - 1)
     reading.lastNote = path
+    reading.open = path
     reading.dir = parentDir(path)
     saveReadingSoon()
   } catch (e) {
     if (token !== openToken) return
-    pages = [`■ ${name}\n\n불러오지 못했습니다.\n${errText(e)}\n\n더블탭: 목록으로`]
+    pages = [messageRows(`■ ${name}\n불러오지 못했습니다.\n${errText(e)}\n더블탭: 목록으로`)]
     current = 0
   }
   renderReader()
@@ -172,6 +178,8 @@ function back() {
   if (mode === 'reader') {
     openToken++ // cancel a note that is still loading
     listPage = 0
+    reading.open = null
+    saveReadingSoon()
     renderList()
   } else if (mode === 'list' && reading.dir) {
     goToDir(parentDir(reading.dir))
@@ -203,6 +211,15 @@ bridge.onEvenHubEvent(event => {
 
   if (sys === OsEventTypeList.SYSTEM_EXIT_EVENT || sys === OsEventTypeList.ABNORMAL_EXIT_EVENT) {
     store.saveReading(reading).catch(log)
+    return
+  }
+  if (sys === OsEventTypeList.FOREGROUND_EXIT_EVENT) {
+    store.saveReading(reading).catch(log)
+    return
+  }
+  if (sys === OsEventTypeList.FOREGROUND_ENTER_EVENT) {
+    // The display may have been taken over while we were away — draw it again.
+    redraw().catch(log)
     return
   }
   if (sys === D || text === D || list === D) {
@@ -257,7 +274,7 @@ async function connect(next: RepoConfig) {
     const sameRepo = cfg && cfgKey(cfg) === cfgKey(next)
     cfg = next
     notes = fresh
-    if (!sameRepo) reading = { dir: '', lastNote: null, pages: {} }
+    if (!sameRepo) reading = { dir: '', lastNote: null, open: null, pages: {} }
     await store.saveConfig(cfg)
     await store.saveNoteList({ key: cfgKey(cfg), fetchedAt: Date.now(), truncated, notes })
     await store.saveReading(reading)
@@ -356,7 +373,7 @@ function renderResults() {
 function renderPhone() {
   const reader = mode === 'reader' && notePath
   $('noteTitle').textContent = reader ? noteName(notePath!) : '열린 노트 없음'
-  $('mirror').textContent = reader ? pages[current] ?? '' : '안경 목록이나 위 검색에서 노트를 고르세요.'
+  $('mirror').textContent = reader ? pages[current]?.join('\n') ?? '' : '안경 목록이나 위 검색에서 노트를 고르세요.'
   $('pageCount').textContent = reader ? `${current + 1} / ${pages.length}` : ''
 }
 
@@ -408,10 +425,12 @@ if (!cfg) {
   }
 } else {
   fillForm(cfg)
-  const cached = await store.loadNoteList()
+  const cached = await store.loadNoteList().catch(() => null)
   if (cached && cached.key === cfgKey(cfg)) {
     notes = cached.notes
-    renderList()
+    // Reopen the note that was on screen when the app was last closed or backgrounded.
+    if (reading.open && notes.some(n => n.path === reading.open)) openNote(reading.open)
+    else renderList()
     refreshNotes(false) // update in the background
   } else {
     showMessage('노트 목록을 불러오는 중...')
@@ -420,3 +439,4 @@ if (!cfg) {
 }
 updateListInfo()
 renderPhone()
+if (startupResult !== 0) console.warn('createStartUpPageContainer returned', startupResult, '(redrawn with rebuildPageContainer)')

@@ -15,8 +15,10 @@ OneDrive 직접 연결(B안)은 MS 로그인이 Even 앱 WebView에서 되는지
 - 로컬 git 첫 커밋까지 완료. GitHub 저장소 생성/push/Pages 설정은 사용자가 진행 예정(설정-가이드.md 4단계).
 
 ## 결정 사항
-- 레이아웃 2개: list(헤더 텍스트 + 펌웨어 리스트, 항목 20개/64자 제한 → 18개씩 페이지 + ▲▼ 항목), reader(본문 576x250 + 상태줄).
-- 첫 화면만 createStartUpPageContainer, 이후 레이아웃 전환은 rebuildPageContainer(텍스트 1000자 제한 → 넘으면 upgrade로 다시 씀), 페이지 넘김은 textContainerUpgrade.
+- 레이아웃 2개: list(헤더 + 펌웨어 리스트, 20개/64자 제한 → 18개씩 페이지 + ▲▼), reader(투명 입력 레이어 + 줄 컨테이너 6개(40px 간격, 1.5배 줄 간격) + 상태줄 = 텍스트 컨테이너 8개, 최대치).
+- createStartUpPageContainer는 호스트 세션당 한 번만 동작(재실행 시 무시될 수 있음) → 시작하자마자 boot()로 임시 화면, 실제 화면은 항상 rebuildPageContainer. FOREGROUND_ENTER에서 redraw. 줄 단위 textContainerUpgrade로 바뀐 줄만 갱신.
+- reading.open: 노트를 보던 중 종료/백그라운드되면 다음 실행 때 그 노트를 다시 엶.
+- v0.1.1(2026-10-13): 사용자 보고 2건 수정 — 줄 간격 1.5배, 두 번째 실행부터 안경에 안 뜨는 문제(원인 추정: createStartUp 무시 + 저장소 읽기 후 첫 화면 생성).
 - 모든 bridge 호출은 src/bridge.ts `serial()`로 직렬화(10초 타임아웃). serial 안에서 serial 호출 금지(교착).
 - 노트 캐시: blob sha 키, 최근 10개, 30만 자 이하. 노트 목록도 캐시 후 시작 시 백그라운드 갱신.
 - 안경 글리프는 design-guidelines에 있는 것만 사용(■ ▶ ▷ □ │ ─ ★ ◀ ▲ ▼).

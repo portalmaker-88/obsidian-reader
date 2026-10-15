@@ -507,7 +507,7 @@ function logEvent(event: EvenHubEvent) {
 function renderDiag() {
   if (!$<HTMLDetailsElement>('diag').open) return
   $('diagText').textContent = [
-    `startup: ${glasses.startupResult}  mode: ${mode}  dir: ${reading.dir || '/'}  listPage: ${listPage}`,
+    `startup: ${glasses.startupResult}  mode: ${mode}  dir: ${reading.dir || '/'}  listPage: ${listPage}  listLevel: ${glasses.listLevel}  v${__APP_VERSION__}`,
     '--- 화면 오류',
     ...glasses.errors,
     '--- 최근 입력',

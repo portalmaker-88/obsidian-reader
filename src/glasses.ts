@@ -39,7 +39,6 @@ const LINE_PITCH = 40
 const LINE_H = 36
 
 export const LIST_MAX_ITEMS = 20
-const ITEM_MAX_CHARS = 64
 const HEADER_MAX_CHARS = 60
 /** Ignore input this long after a layout change, so taps aimed at the old screen don't hit the new one. */
 const SETTLE_MS = 350
@@ -85,6 +84,27 @@ function clip(s: string, max: number) {
   return chars.length > max ? chars.slice(0, max - 3).join('') + '...' : chars.join('')
 }
 
+// The host rejects a whole list page (rebuildPageContainer → false) when an
+// item is too long, and the 64 limit appears to count UTF-8 bytes, not
+// characters: a Korean syllable is 3 bytes, so ~20 Korean characters is the cap.
+const ITEM_MAX_BYTES = 60
+const utf8 = new TextEncoder()
+const byteLength = (s: string) => utf8.encode(s).length
+
+function clipBytes(s: string, maxBytes: number) {
+  s ||= ' '
+  if (byteLength(s) <= maxBytes) return s
+  let out = ''
+  let used = 0
+  for (const ch of s) {
+    const b = byteLength(ch)
+    if (used + b > maxBytes - 2) break
+    out += ch
+    used += b
+  }
+  return out.trimEnd() + '..'
+}
+
 /**
  * Turns list labels into exactly what the firmware will show: clipped and made
  * unique. The firmware echoes the selected label back in list events, so
@@ -93,13 +113,25 @@ function clip(s: string, max: number) {
 export function fitListItems(labels: string[]): string[] {
   const seen = new Map<string, number>()
   return labels.slice(0, LIST_MAX_ITEMS).map(label => {
-    let s = clip(label, ITEM_MAX_CHARS)
+    let s = clipBytes(label, ITEM_MAX_BYTES)
     const n = (seen.get(s) ?? 0) + 1
     seen.set(s, n)
-    if (n > 1) s = clip(label, ITEM_MAX_CHARS - 4) + ` (${n})`
+    if (n > 1) s = clipBytes(label, ITEM_MAX_BYTES - 5) + ` (${n})`
     return s
   })
 }
+
+// If the host still rejects a list, retry with progressively plainer versions
+// (symbols swapped for ASCII, shorter labels, fewer items). The level that
+// worked is kept so later lists go straight to it, and shown in diagnostics.
+const ASCII_MARKS: Record<string, string> = { '★': '*', '▷': '>', '▶': '>', '◀': '<', '▲': '^', '▼': 'v', '■': '#', '…': '..' }
+const asciiMarks = (s: string) => s.replace(/[★▷▶◀▲▼■…]/g, c => ASCII_MARKS[c])
+const LIST_VARIANTS: ((items: string[]) => string[])[] = [
+  items => items,
+  items => items.map(s => clipBytes(asciiMarks(s), 40)),
+  items => items.slice(0, 10).map(s => clipBytes(asciiMarks(s), 24)),
+]
+export let listLevel = 0
 
 // ---------- public API ----------
 
@@ -210,10 +242,20 @@ async function apply(target: Screen, stale: () => boolean): Promise<boolean> {
       }
       return true
     }
-    if (!(await rebuildSlot(stale))) return false
-    await rebuild(listPage(target.header, target.items))
-    drawn = { ...blank('list'), header: target.header, itemsKey }
-    return true
+    for (let level = listLevel; level < LIST_VARIANTS.length; level++) {
+      if (!(await rebuildSlot(stale))) return false
+      try {
+        await rebuild(listPage(target.header, LIST_VARIANTS[level](target.items)))
+      } catch (err) {
+        note(`${err} (목록 단계 ${level})`)
+        continue
+      }
+      if (level !== listLevel) note(`목록을 단계 ${level} 형식으로 표시함`)
+      listLevel = level
+      drawn = { ...blank('list'), header: target.header, itemsKey }
+      return true
+    }
+    throw new Error('목록 표시 실패: 모든 단계가 거부됨')
   }
 
   if (drawn.layout !== 'reader') {

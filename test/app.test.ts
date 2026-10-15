@@ -18,6 +18,8 @@ const fake = vi.hoisted(() => {
     lastCallAt: 0,
     lastRebuildAt: -Infinity,
     droppedRebuilds: 0,
+    rejectedRebuilds: 0,
+    rejectSymbols: false,
     storage: new Map<string, string>(),
     handler: null as null | ((e: any) => void),
     exitDialogs: 0,
@@ -45,7 +47,17 @@ const fake = vi.hoisted(() => {
     // page) reports success but is dropped.
     rebuildPageContainer: (c: any) => {
       const tooSoon = performance.now() - state.lastRebuildAt < 400
+      // Confirmed on hardware: the host refuses a list page whose items are too
+      // long (rebuildPageContainer -> false). Modelled as > 64 UTF-8 bytes.
+      const items: string[] = c.listObject?.[0]?.itemContainer?.itemName ?? []
+      const invalid =
+        items.some(s => new TextEncoder().encode(s).length > 64) ||
+        (state.rejectSymbols && items.some(s => /[★▷◀▲▼■]/.test(s)))
       return op('rebuild', 150, () => {
+        if (invalid) {
+          state.rejectedRebuilds++
+          return false
+        }
         if (tooSoon) state.droppedRebuilds++
         else state.screen = c
         state.lastRebuildAt = performance.now()
@@ -97,6 +109,7 @@ const NOTES = [
   { path: '일기/2026-10-12.md', sha: 'd1' },
   { path: '긴 노트.md', sha: 'long' },
   { path: '시작.md', sha: 'start' },
+  { path: '아주 긴 한글 이름을 가진 회의록 노트 정리본 최종 수정판.md', sha: 'kr-long' },
 ]
 const LONG_MD = Array.from({ length: 60 }, (_, i) => `${i + 1}번째 줄입니다. 안경에서 페이지를 넘기며 읽는 테스트 문장.`).join('\n')
 
@@ -152,6 +165,7 @@ async function launch(startupResult = 0) {
   S.calls = []
   S.maxInFlight = 0
   S.droppedRebuilds = 0
+  S.rejectedRebuilds = 0
   S.storage.set(
     'obsreader.config',
     JSON.stringify({ owner: 'me', repo: 'vault', branch: 'main', root: '', token: '' }),
@@ -319,6 +333,39 @@ describe('lifecycle', () => {
     expect(S.droppedRebuilds).toBe(0)
     expect(S.calls.filter(c => c === 'rebuild').length).toBeGreaterThan(3)
   }, 30_000)
+
+  it('after reading a long Korean-named note, the next launch still shows the root list with the resume item', async () => {
+    await launch()
+    selectStarting('아주 긴 한글')
+    await idle()
+    expect(isReader()).toBe(true)
+    emit(T.double) // back to list -> the note becomes "이어 읽기" at the root
+    await idle()
+    await fake.sleep(1700) // background save
+    await launch()
+    const items = listItems()
+    expect(items[0]).toMatch(/^★ 이어 읽기: 아주 긴/)
+    expect(items.every(s => new TextEncoder().encode(s).length <= 64)).toBe(true)
+    expect(S.rejectedRebuilds).toBe(0)
+    selectStarting('★ 이어 읽기')
+    await idle()
+    expect(isReader()).toBe(true)
+  }, 40_000)
+
+  it('falls back to a plainer list if the host still refuses one, and stays selectable', async () => {
+    S.rejectSymbols = true
+    try {
+      await launch()
+      const items = listItems()
+      expect(items.length).toBeGreaterThan(0)
+      expect(items.some(s => /[★▷◀▲▼■]/.test(s))).toBe(false)
+      select(items.find(s => s.startsWith('> 일기'))!)
+      await idle()
+      expect(header()).toContain('일기')
+    } finally {
+      S.rejectSymbols = false
+    }
+  }, 40_000)
 
   it('reopens the note that was on screen when the app was closed', async () => {
     await launch()

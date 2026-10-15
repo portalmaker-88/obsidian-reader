@@ -25,6 +25,15 @@ OneDrive 직접 연결(B안)은 MS 로그인이 Even 앱 WebView에서 되는지
 - package_id: com.portalmaker88.obsidianreader, network whitelist: https://api.github.com
 - Windows: 경로가 길면 npm install/git 실패 → 프로젝트는 C:\Users\user\obsidian-reader. PowerShell에서는 npm.cmd/npx.cmd.
 
+## v0.2.0 (2026-10-15) 구조 개편 — 사용자 보고: 목록 ▼다음 안 됨, 노트 오가며 멈춤, 한 번 탭이 더블탭처럼
+- bridge.ts: 단일 체인 → 2레인 스케줄러(ui 우선, bg는 렌더 중 보류). 저장 쓰기가 화면을 막던 문제 제거.
+- glasses.ts: show(screen) 선언형 렌더러. 최신 화면만 그림, 줄 갱신 사이마다 새 요청 확인(연타 합침), 업그레이드 실패 시 전체 rebuild, rebuild 중·직후 350ms 입력 무시(inputBlocked).
+- main.ts: 입력 파싱 한곳(parseInput) + 메아리 제거(같은 입력 180ms, 더블 800ms, 더블 직후 500ms 모두 무시). 목록 선택은 펌웨어가 돌려주는 currentSelectItemName으로 찾고 index는 예비.
+- 목록 페이지: 17개 + 상단칸 + ▲ + ▼ ≤ 20 (예전엔 하위 폴더 2쪽부터 21개가 될 수 있었음). ▲▼에 범위 표시, 노트에서 나오면 그 노트가 있는 쪽으로 복귀.
+- 노트 열 때 화면 전환 없이 목록 헤더만 "여는 중"으로 바꿈, 세션 메모리 캐시 30개.
+- 루트에서 종료 대화상자 취소 시 화면 다시 그림. 휴대폰 화면에 "진단 정보"(최근 입력 원본, 화면 오류) 추가.
+- ▼다음이 안 된 정확한 원인은 실기기 로그 없이 확정 못 함(후보: index 불일치, 21개 초과, 입력 메아리). 다시 생기면 진단 정보 캡처 요청.
+
 ## 다음 할 일
 1. 사용자: 설정-가이드.md 1~4단계.
 2. 안경 실측 후 문제 수정(리스트 탭 인덱스, 한글 표시, 목록↔노트 전환 깜빡임).

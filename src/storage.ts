@@ -1,4 +1,4 @@
-import { bridge, serial } from './bridge'
+import { bridge, call } from './bridge'
 import type { NoteEntry, RepoConfig } from './github'
 
 // Everything persists through the SDK key-value store — browser storage does
@@ -11,8 +11,10 @@ const CHUNK = 50_000
 const MAX_CACHED_NOTES = 10
 const MAX_NOTE_CHARS = 300_000
 
-const get = (key: string) => serial(() => bridge.getLocalStorage(PREFIX + key), 5_000)
-const set = (key: string, value: string) => serial(() => bridge.setLocalStorage(PREFIX + key, value))
+// Reads are on the UI lane (something on screen is waiting for them);
+// writes go to the background lane so they never delay drawing.
+const get = (key: string) => call(() => bridge.getLocalStorage(PREFIX + key), 'ui', 5_000)
+const set = (key: string, value: string) => call(() => bridge.setLocalStorage(PREFIX + key, value), 'bg', 8_000)
 
 async function getJson<T>(key: string, fallback: T): Promise<T> {
   try {

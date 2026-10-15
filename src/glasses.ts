@@ -17,8 +17,15 @@ import { bridge, call, holdBackground } from './bridge'
 //
 // Layouts:
 //   list   — header line + native firmware list (folder / note picker)
-//   reader — invisible full-screen input layer + one container per text row
-//            on a 40px pitch (≈1.5× the firmware's fixed 27px line height) + status line
+//   message — one full-screen text container (startup, loading, errors)
+//   reader  — invisible full-screen input layer + one container per text row
+//             on a 40px pitch (≈1.5× the firmware's fixed 27px line height) + status line
+//
+// Layout changes (rebuildPageContainer) are the expensive, fragile step: the
+// glasses can drop a rebuild that arrives while they are still applying the
+// previous one. So rebuilds are spaced at least REBUILD_GAP_MS apart, and
+// anything that can be shown inside the current layout is done with in-place
+// text updates instead.
 //
 // createStartUpPageContainer works only once per host session (a relaunch can
 // silently ignore it), so boot() uses it for a placeholder and every real
@@ -36,26 +43,31 @@ const ITEM_MAX_CHARS = 64
 const HEADER_MAX_CHARS = 60
 /** Ignore input this long after a layout change, so taps aimed at the old screen don't hit the new one. */
 const SETTLE_MS = 350
+const REBUILD_GAP_MS = 600
+const MESSAGE_MAX_CHARS = 900
 
 export type Screen =
+  | { kind: 'message'; text: string }
   | { kind: 'list'; header: string; items: string[] }
   | { kind: 'reader'; rows: string[]; status: string }
 
 interface Drawn {
-  layout: 'boot' | 'list' | 'reader' | 'unknown'
+  layout: 'message' | 'list' | 'reader' | 'unknown'
+  message: string
   header: string
   itemsKey: string
   rows: string[]
   status: string
 }
 
-let drawn: Drawn = { layout: 'boot', header: '', itemsKey: '', rows: [], status: '' }
+const blank = (layout: Drawn['layout']): Drawn => ({ layout, message: '', header: '', itemsKey: '', rows: [], status: '' })
+let drawn: Drawn = blank('unknown')
 let wanted: Screen | null = null
 let wantedVersion = 0
 let drawnVersion = 0
 let loop: Promise<void> | null = null
 let rebuilding = false
-let settledAt = 0
+let settledAt = -Infinity
 
 export let startupResult: number | null = null
 export const errors: string[] = []
@@ -92,6 +104,7 @@ export function fitListItems(labels: string[]): string[] {
 // ---------- public API ----------
 
 export function boot(message: string) {
+  message = clip(message, MESSAGE_MAX_CHARS)
   return call(async () => {
     startupResult = await bridge.createStartUpPageContainer(
       new CreateStartUpPageContainer({
@@ -100,18 +113,24 @@ export function boot(message: string) {
           new TextContainerProperty({
             xPosition: 0, yPosition: 0, width: 576, height: 288,
             borderWidth: 0, borderColor: 5, paddingLength: 8,
-            containerID: 1, containerName: 'boot',
+            containerID: 1, containerName: 'msg',
             content: message, isEventCapture: 1,
           }),
         ],
       }),
     )
+    settledAt = performance.now()
+    // On a relaunch the call can be ignored; then the first in-place update
+    // fails and the renderer falls back to a rebuild.
+    drawn = { ...blank('message'), message }
   })
 }
 
 export function show(screen: Screen) {
   wanted =
-    screen.kind === 'list'
+    screen.kind === 'message'
+      ? { kind: 'message', text: clip(screen.text, MESSAGE_MAX_CHARS) }
+      : screen.kind === 'list'
       ? { kind: 'list', header: clip(screen.header, HEADER_MAX_CHARS), items: screen.items.slice(0, LIST_MAX_ITEMS) }
       : {
           kind: 'reader',
@@ -168,6 +187,20 @@ async function run() {
 
 /** Returns false if it stopped early because a newer screen was requested. */
 async function apply(target: Screen, stale: () => boolean): Promise<boolean> {
+  if (target.kind === 'message') {
+    if (drawn.layout === 'message') {
+      if (drawn.message !== target.text) {
+        await upgrade(1, 'msg', target.text)
+        drawn.message = target.text
+      }
+      return true
+    }
+    if (!(await rebuildSlot(stale))) return false
+    await rebuild(messagePage(target.text))
+    drawn = { ...blank('message'), message: target.text }
+    return true
+  }
+
   if (target.kind === 'list') {
     const itemsKey = target.items.join('\u0000')
     if (drawn.layout === 'list' && drawn.itemsKey === itemsKey) {
@@ -177,14 +210,16 @@ async function apply(target: Screen, stale: () => boolean): Promise<boolean> {
       }
       return true
     }
+    if (!(await rebuildSlot(stale))) return false
     await rebuild(listPage(target.header, target.items))
-    drawn = { layout: 'list', header: target.header, itemsKey, rows: [], status: '' }
+    drawn = { ...blank('list'), header: target.header, itemsKey }
     return true
   }
 
   if (drawn.layout !== 'reader') {
+    if (!(await rebuildSlot(stale))) return false
     await rebuild(readerPage(target.rows, target.status))
-    drawn = { layout: 'reader', header: '', itemsKey: '', rows: [...target.rows], status: target.status }
+    drawn = { ...blank('reader'), rows: [...target.rows], status: target.status }
     return true
   }
   // Same layout: update only rows that changed, checking for a newer page between calls.
@@ -200,6 +235,13 @@ async function apply(target: Screen, stale: () => boolean): Promise<boolean> {
     drawn.status = target.status
   }
   return true
+}
+
+/** Waits until a rebuild is safe to send; false if a newer screen was requested meanwhile. */
+async function rebuildSlot(stale: () => boolean) {
+  const wait = REBUILD_GAP_MS - (performance.now() - settledAt)
+  if (wait > 0) await new Promise(r => setTimeout(r, wait))
+  return !stale()
 }
 
 async function rebuild(page: { textObject?: TextContainerProperty[]; listObject?: ListContainerProperty[] }) {
@@ -221,6 +263,18 @@ async function upgrade(containerID: number, containerName: string, content: stri
     4_000,
   )
   if (!ok) throw new Error(`textContainerUpgrade(${containerName}) returned false`)
+}
+
+function messagePage(text: string) {
+  return {
+    textObject: [
+      new TextContainerProperty({
+        xPosition: 0, yPosition: 0, width: 576, height: 288,
+        borderWidth: 0, borderColor: 5, paddingLength: 8,
+        containerID: 1, containerName: 'msg', content: text, isEventCapture: 1,
+      }),
+    ],
+  }
 }
 
 function listPage(header: string, items: string[]) {

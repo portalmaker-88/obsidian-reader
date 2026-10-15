@@ -7,7 +7,7 @@ import type { NoteEntry, RepoConfig } from './github'
 // value is never read back.
 
 const PREFIX = 'obsreader.'
-const CHUNK = 50_000
+const CHUNK = 20_000
 const MAX_CACHED_NOTES = 10
 const MAX_NOTE_CHARS = 300_000
 
@@ -56,15 +56,29 @@ export interface CachedList {
   notes: NoteEntry[]
 }
 
+// Stored compactly as parallel arrays so even a big vault's list is a few chunks.
 export async function loadNoteList(): Promise<CachedList | null> {
   try {
-    const raw = await getBig('list')
-    return raw ? (JSON.parse(raw) as CachedList) : null
+    const raw = await getBig('list2')
+    if (!raw) return null
+    const c = JSON.parse(raw) as { key: string; fetchedAt: number; truncated: boolean; paths: string[]; shas: string[] }
+    return { key: c.key, fetchedAt: c.fetchedAt, truncated: c.truncated, notes: c.paths.map((path, i) => ({ path, sha: c.shas[i] })) }
   } catch {
     return null
   }
 }
-export const saveNoteList = (list: CachedList) => setBig('list', JSON.stringify(list))
+
+export const saveNoteList = (list: CachedList) =>
+  setBig(
+    'list2',
+    JSON.stringify({
+      key: list.key,
+      fetchedAt: list.fetchedAt,
+      truncated: list.truncated,
+      paths: list.notes.map(n => n.path),
+      shas: list.notes.map(n => n.sha),
+    }),
+  )
 
 // ---------- note contents (keyed by blob sha, small LRU) ----------
 

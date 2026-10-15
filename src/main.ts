@@ -2,7 +2,7 @@ import { OsEventTypeList, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { bridge } from './bridge'
 import { fetchNote, fetchNoteList, GitHubError, type NoteEntry, type RepoConfig } from './github'
 import { mdToGlasses } from './markdown'
-import { paginateRows, wrapText } from './layout'
+import { paginateRows } from './layout'
 import { listDir, noteName, parentDir, searchNotes } from './vault'
 import * as glasses from './glasses'
 import * as store from './storage'
@@ -132,7 +132,7 @@ function showReader() {
 function showMessage(text: string) {
   mode = 'message'
   loadingPath = null
-  glasses.show({ kind: 'reader', rows: wrapText(text, glasses.LINE_W).slice(0, glasses.LINES_PER_PAGE), status: ' ' })
+  glasses.show({ kind: 'message', text })
   renderPhone()
 }
 
@@ -186,9 +186,10 @@ async function openNote(path: string) {
   const name = noteName(path)
   loadingPath = path
 
-  // Feedback without changing layout: one cheap header update on the list,
-  // or a message when opened from the phone while reading something else.
+  // Feedback without changing layout (layout changes are the slow, fragile
+  // step): the list header, the reader's status line, or the message text.
   if (mode === 'list') setListHeader(`■ 여는 중: ${short(name, 30)}`)
+  else if (mode === 'reader') glasses.show({ kind: 'reader', rows: pages[current] ?? [], status: `여는 중: ${short(name, 30)}` })
   else showMessage(`■ ${name}\n\n불러오는 중...`)
 
   let result: string[][]

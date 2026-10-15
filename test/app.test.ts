@@ -16,6 +16,8 @@ const fake = vi.hoisted(() => {
     inFlight: 0,
     maxInFlight: 0,
     lastCallAt: 0,
+    lastRebuildAt: -Infinity,
+    droppedRebuilds: 0,
     storage: new Map<string, string>(),
     handler: null as null | ((e: any) => void),
     exitDialogs: 0,
@@ -38,11 +40,18 @@ const fake = vi.hoisted(() => {
         if (state.startupResult === 0) state.screen = c
         return state.startupResult
       }),
-    rebuildPageContainer: (c: any) =>
-      op('rebuild', 150, () => {
-        state.screen = c
+    // Models the suspected hardware behaviour: a layout change that arrives
+    // while the glasses are still applying the previous one (or the startup
+    // page) reports success but is dropped.
+    rebuildPageContainer: (c: any) => {
+      const tooSoon = performance.now() - state.lastRebuildAt < 400
+      return op('rebuild', 150, () => {
+        if (tooSoon) state.droppedRebuilds++
+        else state.screen = c
+        state.lastRebuildAt = performance.now()
         return true
-      }),
+      })
+    },
     textContainerUpgrade: (u: any) =>
       op('upgrade', 40, () => {
         const t = state.screen?.textObject?.find((x: any) => x.containerID === u.containerID && x.containerName === u.containerName)
@@ -142,6 +151,7 @@ async function launch(startupResult = 0) {
   S.screen = null
   S.calls = []
   S.maxInFlight = 0
+  S.droppedRebuilds = 0
   S.storage.set(
     'obsreader.config',
     JSON.stringify({ owner: 'me', repo: 'vault', branch: 'main', root: '', token: '' }),
@@ -276,6 +286,38 @@ describe('lifecycle', () => {
   it('draws the list even when createStartUpPageContainer is ignored on relaunch', async () => {
     await launch(1)
     expect(listItems().length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it('without a cached list, startup goes from the loading message to the folder list (no dropped layout changes)', async () => {
+    S.storage.delete('obsreader.list2_n')
+    await launch()
+    expect(listItems().some(l => l.startsWith('▷ 큰폴더'))).toBe(true)
+    expect(S.droppedRebuilds).toBe(0)
+  }, 30_000)
+
+  it('caches the note list so the next launch opens straight into the folder list', async () => {
+    await launch()
+    await fake.sleep(1500) // background save
+    expect(S.storage.get('obsreader.list2_n')).toBeTruthy()
+    await launch()
+    expect(S.calls.filter(c => c === 'rebuild').length).toBe(1) // boot -> list, nothing in between
+    expect(listItems().length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it('rapid navigation never sends a layout change the glasses would drop', async () => {
+    await launch()
+    // Hammer the glasses faster than screens can change; some input is
+    // (intentionally) ignored, but every layout change that is sent must land.
+    for (let i = 0; i < 12; i++) {
+      const items = listItems()
+      const target = items.find(l => l.startsWith('▷ ')) ?? items.find(l => l === '긴 노트')
+      if (target && i % 3 !== 2) select(target)
+      else emit(T.double)
+      await fake.sleep(250)
+    }
+    await idle()
+    expect(S.droppedRebuilds).toBe(0)
+    expect(S.calls.filter(c => c === 'rebuild').length).toBeGreaterThan(3)
   }, 30_000)
 
   it('reopens the note that was on screen when the app was closed', async () => {
